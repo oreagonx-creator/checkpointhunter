@@ -1063,37 +1063,38 @@
     }
   });
 
-  // ---------- เล่นอีกครั้ง: เริ่ม attempt ใหม่ทันที ไม่ต้องกรอกฟอร์มซ้ำ ----------
-  async function playAgain() {
+  // ---------- เล่นอีกครั้ง: กลับไปหน้ากติกา/เช็ค GPS ก่อน ไม่เข้าเกมทันที ----------
+  function playAgain() {
     document.getElementById("creditModalOverlay").classList.add("hidden");
     endCard.classList.add("hidden");
 
-    try {
-      const res = await callApi({ action: "startGame", id: state.id, name: state.name });
-      if (!res.success) {
-        alert(res.error === "daily attempt limit reached" ? dailyLimitMessage(res) : (res.error || "เริ่มเกมไม่สำเร็จ"));
-        endCard.classList.remove("hidden");
-        return;
-      }
-      enterGame(res);
-    } catch (e) {
-      alert("เชื่อมต่อไม่สำเร็จ: " + e.message);
-      endCard.classList.remove("hidden");
-    }
+    state.pendingName = state.name;
+    state.pendingId = state.id;
+    rulesCard.classList.remove("hidden");
+    checkGpsOnRulesScreen();
   }
   document.getElementById("playAgainBtn").addEventListener("click", playAgain);
   document.getElementById("modalPlayAgainBtn").addEventListener("click", playAgain);
 
-  // ---------- จบกิจกรรม: ปิด session ถาวร ไม่ resume อีก ----------
+  // ---------- จบกิจกรรม: ล้าง session ทิ้งถาวร แล้วพยายามปิดหน้าต่าง (เผื่อเบราว์เซอร์บล็อกไว้ ให้ fallback เป็นข้อความแทน) ----------
   function endActivity() {
     localStorage.removeItem("checkpointMission_id");
     localStorage.removeItem("checkpointMission_name");
     document.getElementById("creditModalOverlay").classList.add("hidden");
 
-    const nextStepBox = document.getElementById("nextStepBox");
-    nextStepBox.classList.remove("hidden");
-    document.getElementById("nextStepMsg").textContent = "ขอบคุณที่ร่วมกิจกรรมครับ 🙏";
-    document.getElementById("playAgainBtn").classList.add("hidden");
+    window.close();
+
+    // ถ้าเบราว์เซอร์บล็อกไม่ให้ script ปิดแท็บเอง (พบบ่อยในมือถือ) ให้โชว์ข้อความแทน
+    setTimeout(() => {
+      endCard.classList.remove("hidden");
+      document.getElementById("endStats").classList.remove("show");
+      document.getElementById("captionBox").classList.add("hidden");
+      const nextStepBox = document.getElementById("nextStepBox");
+      nextStepBox.classList.remove("hidden");
+      document.getElementById("nextStepMsg").textContent = "ขอบคุณที่ร่วมกิจกรรมครับ 🙏 ปิดหน้าต่างนี้ได้เลย";
+      document.getElementById("playAgainBtn").classList.add("hidden");
+      document.getElementById("endActivityBtn").classList.add("hidden");
+    }, 300);
   }
   document.getElementById("endActivityBtn").addEventListener("click", endActivity);
   document.getElementById("modalEndActivityBtn").addEventListener("click", endActivity);
