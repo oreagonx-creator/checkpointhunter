@@ -691,21 +691,20 @@
 
     document.getElementById("pName").value = savedName;
     document.getElementById("pId").value = savedId;
-    startBtn.textContent = "กำลังกู้คืนภารกิจเดิม...";
+    startBtn.textContent = "กำลังตรวจสอบภารกิจเดิม...";
     startBtn.disabled = true;
 
     try {
-      const res = await callApi({ action: "startGame", id: savedId, name: savedName });
-      if (res.success) {
+      // ใช้ getStatus (อ่านอย่างเดียว ไม่มีผลข้างเคียง) แทน startGame
+      // เพื่อกันไม่ให้เผลอเริ่ม attempt ใหม่อัตโนมัติถ้ารอบก่อนหน้าจบไปแล้ว (สำเร็จ/หมดเวลา)
+      // จะ resume อัตโนมัติเฉพาะตอนที่ยังเล่นค้างอยู่จริงเท่านั้น (status === "playing")
+      const res = await callApi({ action: "getStatus", id: savedId });
+      if (res.success && res.status === "playing") {
         state.id = savedId;
         state.name = savedName;
         enterGame(res);
-      } else if (res.error === "daily attempt limit reached") {
-        // เล่นครบโควตาวันนี้แล้ว (อาจเล่นจากเครื่องอื่นจนครบ) เคลียร์ session เก่าทิ้ง แสดงข้อความแทน
-        localStorage.removeItem("checkpointMission_id");
-        localStorage.removeItem("checkpointMission_name");
-        showError(dailyLimitMessage(res));
       }
+      // ถ้าไม่ใช่ playing (จบไปแล้ว/ไม่เจอข้อมูล) -> ปล่อยให้อยู่หน้า login ตามปกติ ให้กดเข้าสู่ภารกิจเอง
     } catch (e) {
       // เชื่อมต่อไม่ได้ตอนนี้ ปล่อยให้ผู้เล่นกดเริ่มเองได้ตามปกติ
     } finally {
@@ -794,7 +793,7 @@
         <div class="cp-badge" id="cp-badge-${cp.id}">-</div>
         <div class="cp-actions">
           <a class="cp-nav" target="_blank" rel="noopener"
-             href="https://www.google.com/maps/dir/?api=1&destination=${cp.lat},${cp.lng}&travelmode=walking">
+             href="https://maps.google.com/maps?daddr=${cp.lat},${cp.lng}&dirflg=w">
             🧭 นำทาง
           </a>
           <button class="cp-checkin-btn hidden" id="cp-checkin-${cp.id}" data-cp="${cp.id}">
