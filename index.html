@@ -361,11 +361,6 @@
     <div class="mode-note">&#127775; โหมด HUNTER: ภารกิจเก็บ checkpoint 5 จุด สะสมเครดิต</div>
 
     <div class="credit-check-link" id="creditCheckToggle">🔍 เช็คเครดิตสัปดาห์นี้ของฉัน</div>
-    <div id="creditCheckBox" class="credit-check-box hidden">
-      <input id="creditCheckId" type="text" placeholder="กรอก SAP ID" inputmode="numeric">
-      <button id="creditCheckBtn" class="btn-secondary" type="button">ตรวจสอบ</button>
-      <div id="creditCheckResult" class="credit-check-result"></div>
-    </div>
   </div>
 
   <div class="brand-footer">Checkpoint Hunter System &middot; Checkpoint Mission</div>
@@ -479,6 +474,22 @@
   <div id="countdownNumber" class="countdown-number">3</div>
 </div>
 
+<!-- CREDIT CHECK MODAL: เช็คเครดิตสัปดาห์นี้ (แยกหน้าต่างจากฟอร์ม login) -->
+<div id="creditCheckOverlay" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div class="modal-emoji">💰</div>
+    <div class="modal-msg">เครดิตสัปดาห์นี้ของฉัน</div>
+
+    <div id="creditCheckInputWrap" class="credit-check-box">
+      <input id="creditCheckId" type="text" placeholder="กรอก SAP ID" inputmode="numeric">
+      <button id="creditCheckBtn" class="btn-secondary" type="button">ตรวจสอบ</button>
+    </div>
+
+    <div id="creditCheckResult" class="credit-check-result"></div>
+    <button id="creditCheckCloseBtn" class="btn-ghost" type="button">ปิด</button>
+  </div>
+</div>
+
 <script>
   // ตั้งค่า URL ของ Apps Script Web App ที่ deploy ไว้แล้ว
   const API_URL = "https://script.google.com/macros/s/AKfycbxDT_FV166DJyKIpzvHOYyYfWDufoUOKX_5YIZu5xhr05tYm0pPMljf-rdAMdfYxrnZ/exec";
@@ -550,24 +561,9 @@
   // ---------- UI refs ----------
   const loginCard = document.getElementById("loginCard");
 
-  // ---------- เช็คเครดิตสัปดาห์นี้ (ไม่ต้องเริ่มเกม) ----------
-  document.getElementById("creditCheckToggle").addEventListener("click", () => {
-    document.getElementById("creditCheckBox").classList.toggle("hidden");
-  });
-
-  document.getElementById("creditCheckBtn").addEventListener("click", async () => {
-    const id = document.getElementById("creditCheckId").value.trim();
+  // ---------- เช็คเครดิตสัปดาห์นี้ (popup แยกหน้าต่าง ไม่ต้องเริ่มเกม) ----------
+  async function fetchAndShowWeeklyCredits(id) {
     const resultEl = document.getElementById("creditCheckResult");
-    const btn = document.getElementById("creditCheckBtn");
-
-    if (!id) {
-      resultEl.className = "credit-check-result show error";
-      resultEl.textContent = "กรอก SAP ID ก่อนครับ";
-      return;
-    }
-
-    btn.disabled = true;
-    btn.textContent = "กำลังตรวจสอบ...";
     resultEl.className = "credit-check-result show";
     resultEl.textContent = "กำลังโหลดข้อมูล...";
 
@@ -583,15 +579,47 @@
       resultEl.className = "credit-check-result show";
       resultEl.innerHTML =
         `<b>${res.name}</b> (SAP ID: ${res.playerId})<br>` +
-        `เครดิตสัปดาห์นี้ (${formatDate(new Date(res.weekStart))} - ${formatDate(new Date(res.weekEnd))}):<br>` +
+        `เครดิตสัปดาห์นี้ (${formatDate(res.weekStart)} - ${formatDate(res.weekEnd)}):<br>` +
         `<span style="font-size:20px; font-weight:800; color:var(--amber);">${res.credits} เครดิต</span>`;
     } catch (e) {
       resultEl.className = "credit-check-result show error";
       resultEl.textContent = "เชื่อมต่อไม่สำเร็จ: " + e.message;
-    } finally {
-      btn.disabled = false;
-      btn.textContent = "ตรวจสอบ";
     }
+  }
+
+  // เปิด popup: ถ้ากรอก SAP ID ในฟอร์มหลักไว้แล้ว ใช้เลยไม่ต้องถามซ้ำ / ถ้ายัง ให้โชว์ช่องกรอกในนี้แทน
+  document.getElementById("creditCheckToggle").addEventListener("click", () => {
+    const overlay = document.getElementById("creditCheckOverlay");
+    const inputWrap = document.getElementById("creditCheckInputWrap");
+    const resultEl = document.getElementById("creditCheckResult");
+    const idInMainForm = document.getElementById("pId").value.trim();
+
+    resultEl.className = "credit-check-result";
+    resultEl.textContent = "";
+    overlay.classList.remove("hidden");
+
+    if (idInMainForm) {
+      inputWrap.classList.add("hidden");
+      fetchAndShowWeeklyCredits(idInMainForm);
+    } else {
+      inputWrap.classList.remove("hidden");
+      document.getElementById("creditCheckId").value = "";
+    }
+  });
+
+  document.getElementById("creditCheckBtn").addEventListener("click", () => {
+    const id = document.getElementById("creditCheckId").value.trim();
+    const resultEl = document.getElementById("creditCheckResult");
+    if (!id) {
+      resultEl.className = "credit-check-result show error";
+      resultEl.textContent = "กรอก SAP ID ก่อนครับ";
+      return;
+    }
+    fetchAndShowWeeklyCredits(id);
+  });
+
+  document.getElementById("creditCheckCloseBtn").addEventListener("click", () => {
+    document.getElementById("creditCheckOverlay").classList.add("hidden");
   });
 
   // ---------- หน้าเลือกโหมด: ตอนนี้ใช้งานได้จริงแค่โหมด HUNTER เท่านั้น ----------
