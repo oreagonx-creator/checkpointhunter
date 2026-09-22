@@ -72,6 +72,23 @@
     background:transparent; border:1px solid var(--card-line); color:var(--ink-dim);
     margin-top:10px;
   }
+  .btn-secondary{ background:var(--amber-dim); color:var(--amber); }
+
+  .credit-check-link{
+    text-align:center; font-size:12.5px; color:var(--amber); font-weight:700;
+    margin-top:14px; cursor:pointer; text-decoration:underline; text-underline-offset:2px;
+  }
+  .credit-check-box{ margin-top:10px; }
+  .credit-check-box input{
+    width:100%; padding:11px 14px; border-radius:12px; border:1px solid var(--card-line);
+    background:#EDF3FA; color:var(--ink); font-size:14px; font-family:inherit; margin-bottom:8px;
+  }
+  .credit-check-result{
+    margin-top:10px; padding:12px 14px; border-radius:12px; background:#EDF3FA;
+    font-size:13.5px; color:var(--ink); line-height:1.6; text-align:center; display:none;
+  }
+  .credit-check-result.show{ display:block; }
+  .credit-check-result.error{ color:var(--red); }
   .btn-reroll{
     background:var(--amber-dim); color:var(--amber); border:1px solid var(--card-line);
     font-size:12px; line-height:1.35; padding:9px 8px; width:100%; margin:0;
@@ -342,6 +359,13 @@
     <button id="startBtn" class="btn-primary">เข้าสู่ภารกิจ &rarr;</button>
 
     <div class="mode-note">&#127775; โหมด HUNTER: ภารกิจเก็บ checkpoint 5 จุด สะสมเครดิต</div>
+
+    <div class="credit-check-link" id="creditCheckToggle">🔍 เช็คเครดิตสัปดาห์นี้ของฉัน</div>
+    <div id="creditCheckBox" class="credit-check-box hidden">
+      <input id="creditCheckId" type="text" placeholder="กรอก SAP ID" inputmode="numeric">
+      <button id="creditCheckBtn" class="btn-secondary" type="button">ตรวจสอบ</button>
+      <div id="creditCheckResult" class="credit-check-result"></div>
+    </div>
   </div>
 
   <div class="brand-footer">Checkpoint Hunter System &middot; Checkpoint Mission</div>
@@ -525,6 +549,50 @@
 
   // ---------- UI refs ----------
   const loginCard = document.getElementById("loginCard");
+
+  // ---------- เช็คเครดิตสัปดาห์นี้ (ไม่ต้องเริ่มเกม) ----------
+  document.getElementById("creditCheckToggle").addEventListener("click", () => {
+    document.getElementById("creditCheckBox").classList.toggle("hidden");
+  });
+
+  document.getElementById("creditCheckBtn").addEventListener("click", async () => {
+    const id = document.getElementById("creditCheckId").value.trim();
+    const resultEl = document.getElementById("creditCheckResult");
+    const btn = document.getElementById("creditCheckBtn");
+
+    if (!id) {
+      resultEl.className = "credit-check-result show error";
+      resultEl.textContent = "กรอก SAP ID ก่อนครับ";
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = "กำลังตรวจสอบ...";
+    resultEl.className = "credit-check-result show";
+    resultEl.textContent = "กำลังโหลดข้อมูล...";
+
+    try {
+      const res = await callApi({ action: "getWeeklyCredits", id: id });
+      if (!res.success) {
+        resultEl.className = "credit-check-result show error";
+        resultEl.textContent = res.error === "no record found for this week"
+          ? "ยังไม่มีประวัติการเล่นในสัปดาห์นี้"
+          : (res.error || "ตรวจสอบไม่สำเร็จ");
+        return;
+      }
+      resultEl.className = "credit-check-result show";
+      resultEl.innerHTML =
+        `<b>${res.name}</b> (SAP ID: ${res.playerId})<br>` +
+        `เครดิตสัปดาห์นี้ (${formatDate(new Date(res.weekStart))} - ${formatDate(new Date(res.weekEnd))}):<br>` +
+        `<span style="font-size:20px; font-weight:800; color:var(--amber);">${res.credits} เครดิต</span>`;
+    } catch (e) {
+      resultEl.className = "credit-check-result show error";
+      resultEl.textContent = "เชื่อมต่อไม่สำเร็จ: " + e.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "ตรวจสอบ";
+    }
+  });
 
   // ---------- หน้าเลือกโหมด: ตอนนี้ใช้งานได้จริงแค่โหมด HUNTER เท่านั้น ----------
   document.getElementById("modeNextLevel").addEventListener("click", () => {
