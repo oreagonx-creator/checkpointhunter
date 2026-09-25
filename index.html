@@ -826,7 +826,8 @@
     startStatusPolling();
   }
 
-  // ---------- poll getStatus ทุก 30 วิ เพื่อ sync กับ server (เผื่อผู้เล่นไม่ขยับเข้าใกล้จุดไหนเลยจนหมดเวลา) ----------
+  // ---------- poll getStatus ทุก 20 วิ เพื่อ sync กับ server (เผื่อผู้เล่นไม่ขยับเข้าใกล้จุดไหนเลยจนหมดเวลา
+  //            หรือเผื่อจุด active ถูกสลับจากที่อื่น เช่น เปิดหลายแท็บ/หลายเครื่องด้วย ID เดียวกัน) ----------
   function startStatusPolling() {
     state.statusPollInterval = setInterval(async () => {
       try {
@@ -841,12 +842,20 @@
           return;
         }
 
-        // แก้เวลาที่นับฝั่ง client ให้ตรงกับ server เผื่อคลาดเคลื่อน
-        updateTimerText(res.remainingMs);
+        // เทียบ id ของจุด active ที่โชว์อยู่ตอนนี้ กับที่ server ส่งมาล่าสุด
+        // ถ้าไม่ตรงกัน (ถูกสลับจากที่อื่น) ให้ render การ์ดใหม่ทั้งชุดทันที กันผู้เล่นกดจุดที่ไม่ active แล้ว
+        const currentIds = state.activeCPs.map(cp => cp.id).sort().join(",");
+        const freshIds = (res.activeCheckpoints || []).map(cp => cp.id).sort().join(",");
+        if (currentIds !== freshIds) {
+          renderStatus(res);
+        } else {
+          // แก้เวลาที่นับฝั่ง client ให้ตรงกับ server เผื่อคลาดเคลื่อน
+          updateTimerText(res.remainingMs);
+        }
       } catch (e) {
         // เน็ตหลุดชั่วคราว ไม่ต้องแจ้งเตือน รอ poll รอบถัดไป
       }
-    }, 30000);
+    }, 20000);
   }
 
   function stopStatusPolling() {
@@ -1002,9 +1011,20 @@
       });
 
       if (!res.success) {
-        alert(res.error === "too far from checkpoint"
-          ? "ระยะห่างเกินรัศมีแล้ว กรุณาเดินเข้าใกล้จุดอีกครั้ง"
-          : (res.error || "เช็คอินไม่สำเร็จ"));
+        if (res.error === "checkpoint not active for this player") {
+          // จุดนี้ถูกสลับไปแล้วจริงๆ (เช่น มีการเช็คอิน/สุ่มใหม่จากแท็บหรือเครื่องอื่นที่ใช้ ID เดียวกัน)
+          // ดึงสถานะล่าสุดมา render ใหม่ทันที แทนที่จะปล่อยให้ค้างจุดเดิมที่ใช้ไม่ได้แล้ว
+          try {
+            const fresh = await callApi({ action: "getStatus", id: state.id });
+            if (fresh.success) renderStatus(fresh);
+          } catch (e2) { /* เน็ตหลุด ปล่อยผ่าน รอบถัดไปค่อย sync */ }
+
+          alert("อัพเดทจุดเช็คอิน");
+        } else {
+          alert(res.error === "too far from checkpoint"
+            ? "ระยะห่างเกินรัศมีแล้ว กรุณาเดินเข้าใกล้จุดอีกครั้ง"
+            : (res.error || "เช็คอินไม่สำเร็จ"));
+        }
         btnEl.disabled = false;
         btnEl.textContent = "✅ เช็คอิน";
         state.checkingIn = false;
