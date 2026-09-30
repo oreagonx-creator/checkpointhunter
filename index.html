@@ -501,7 +501,7 @@
     timerInterval: null, statusPollInterval: null,
     watchId: null, activeCPs: [], checkingIn: false, myPos: null,
     lastPosForDistance: null, totalDistanceWalked: 0,
-    startTime: null, finishTime: null, remainingMs: null, rerollBusy: false
+    startTime: null, finishTime: null, endTime: null, rerollBusy: false
   };
   const REROLL_COST_MS = 10 * 60 * 1000; // 10 นาที ต่อการสุ่ม 1 ครั้ง
 
@@ -826,8 +826,9 @@
     startStatusPolling();
   }
 
-  // ---------- poll getStatus ทุก 20 วิ เพื่อ sync กับ server (เผื่อผู้เล่นไม่ขยับเข้าใกล้จุดไหนเลยจนหมดเวลา
-  //            หรือเผื่อจุด active ถูกสลับจากที่อื่น เช่น เปิดหลายแท็บ/หลายเครื่องด้วย ID เดียวกัน) ----------
+  // ---------- poll getStatus ทุก 30 วิ เพื่อเช็คว่าจุด active ถูกสลับจากที่อื่นหรือยัง
+  //            (เช่น เปิดหลายแท็บ/หลายเครื่องด้วย ID เดียวกัน) — ไม่เกี่ยวกับความแม่นยำของเวลาแล้ว
+  //            เพราะตัวจับเวลาคำนวณจาก endTime ตรงๆ ไม่มีทางเพี้ยนสะสมอยู่แล้ว ----------
   function startStatusPolling() {
     state.statusPollInterval = setInterval(async () => {
       try {
@@ -849,13 +850,14 @@
         if (currentIds !== freshIds) {
           renderStatus(res);
         } else {
-          // แก้เวลาที่นับฝั่ง client ให้ตรงกับ server เผื่อคลาดเคลื่อน
-          updateTimerText(res.remainingMs);
+          // ยังเจอ drift เล็กน้อยได้จากดีเลย์ของ network ไม่ใช่จาก accumulation แล้ว sync ไปเผื่อไว้เฉยๆ
+          state.endTime = Date.now() + res.remainingMs;
+          updateTimerText(getRemainingMs());
         }
       } catch (e) {
         // เน็ตหลุดชั่วคราว ไม่ต้องแจ้งเตือน รอ poll รอบถัดไป
       }
-    }, 20000);
+    }, 30000);
   }
 
   function stopStatusPolling() {
@@ -863,6 +865,11 @@
   }
 
   function renderStatus(status) {
+    if (status.remainingMs !== undefined) {
+      state.endTime = Date.now() + status.remainingMs; // sync "เวลาที่ควรจะหมด" กับ server ทุกครั้งที่มีข้อมูลสดเข้ามา
+      updateTimerText(getRemainingMs());
+    }
+
     document.getElementById("scoreNow").textContent = status.score;
     const offset = DIAL_CIRC * (1 - status.score / TARGET_SCORE);
     document.getElementById("dialProgress").style.strokeDashoffset = offset;
@@ -1050,20 +1057,26 @@
   }
 
   // ---------- ตัวจับเวลา ----------
+  // แทนที่จะ "นับถอยหลังทีละ 1 วินาที" (ซึ่งเพี้ยนสะสมได้ถ้า browser หรี่ setInterval ตอนสลับแอป/ปิดจอ)
+  // ให้จำ "เวลาที่ควรจะหมด" (endTime) ไว้ครั้งเดียว แล้วคำนวณเวลาที่เหลือจาก now ทุกครั้งที่จะแสดงผล
+  // วิธีนี้ไม่มีทางเพี้ยนสะสม เพราะไม่ได้พึ่งการบวกลบทีละ tick เลย
+  function getRemainingMs() {
+    return state.endTime ? Math.max(0, state.endTime - Date.now()) : 0;
+  }
+
   function startTimer(remainingMs) {
-    state.remainingMs = remainingMs;
-    updateTimerText(state.remainingMs);
+    state.endTime = Date.now() + remainingMs;
+    updateTimerText(getRemainingMs());
 
     state.timerInterval = setInterval(() => {
-      state.remainingMs -= 1000;
-      if (state.remainingMs <= 0) {
+      const remaining = getRemainingMs();
+      updateTimerText(remaining);
+      if (remaining <= 0) {
         stopTimer();
         stopGpsTracking();
         stopStatusPolling();
         showEndState({ status: "failed" });
-        return;
       }
-      updateTimerText(state.remainingMs);
     }, 1000);
   }
 
@@ -1083,7 +1096,7 @@
 
   // ---------- สุ่มพิกัดใหม่: หัก 10 นาทีจากเวลาที่เหลือ, ต้องเหลืออย่างน้อย 10 นาทีถึงจะสุ่มได้ ----------
   rerollBtn.addEventListener("click", async () => {
-    if (state.remainingMs < REROLL_COST_MS || state.rerollBusy) return;
+    if (getRemainingMs() < REROLL_COST_MS || state.rerollBusy) return;
 
     state.rerollBusy = true;
     rerollBtn.disabled = true;
@@ -1099,15 +1112,13 @@
         return;
       }
 
-      renderStatus(res);
-      state.remainingMs = res.remainingMs;
-      updateTimerText(state.remainingMs);
+      renderStatus(res); // renderStatus sync ตัวนับเวลาให้เองแล้ว (รวมถึงเวลาที่หักไป 10 นาทีจากการสุ่ม)
     } catch (e) {
       alert("เชื่อมต่อไม่สำเร็จ: " + e.message);
     } finally {
       state.rerollBusy = false;
       rerollBtn.innerHTML = "🔀 สุ่มใหม่<br>(-10 นาที)";
-      rerollBtn.disabled = state.remainingMs < REROLL_COST_MS;
+      rerollBtn.disabled = getRemainingMs() < REROLL_COST_MS;
     }
   });
 
