@@ -537,7 +537,7 @@
   }
 
   // ---------- JSONP helper (กัน CORS ปัญหาจาก Apps Script) ----------
-  function callApi(params) {
+  function callApiOnce(params) {
     return new Promise((resolve, reject) => {
       const cbName = "jsonp_cb_" + Math.random().toString(36).slice(2);
       const script = document.createElement("script");
@@ -556,6 +556,30 @@
       script.src = `${API_URL}?${qs}`;
       document.body.appendChild(script);
     });
+  }
+
+  // ปัญหาชั่วคราว (lock ชนกันตอนมีคนเช็คอินพร้อมกันเยอะๆ ในงาน event จริง, เน็ตสะดุด)
+  // ลองเรียกซ้ำเองสั้นๆ ก่อน ไม่ต้องให้ผู้เล่นเจอ error แล้วต้องกดลองเองทุกครั้ง
+  function isTransientApiError(message) {
+    return !!message && /lock|ล็อก|timeout/i.test(message);
+  }
+
+  async function callApi(params, attempt = 1) {
+    const MAX_ATTEMPTS = 3;
+    try {
+      const res = await callApiOnce(params);
+      if (!res.success && isTransientApiError(res.error) && attempt < MAX_ATTEMPTS) {
+        await new Promise(r => setTimeout(r, attempt * 700));
+        return callApi(params, attempt + 1);
+      }
+      return res;
+    } catch (e) {
+      if (attempt < MAX_ATTEMPTS) {
+        await new Promise(r => setTimeout(r, attempt * 700));
+        return callApi(params, attempt + 1);
+      }
+      throw e;
+    }
   }
 
   // ---------- UI refs ----------
