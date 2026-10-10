@@ -316,6 +316,9 @@
   .brand-footer{
     text-align:center; font-size:10px; color:var(--ink-dim); margin-top:6px; letter-spacing:.02em;
   }
+  .brand-version{
+    text-align:center; font-size:10px; color:var(--ink-dim); margin-top:2px; letter-spacing:.04em; opacity:.85;
+  }
 </style>
 </head>
 <body>
@@ -364,6 +367,7 @@
   </div>
 
   <div class="brand-footer">Checkpoint Hunter System &middot; Checkpoint Mission</div>
+  <div class="brand-version">Ver.1.0</div>
 
   <!-- RULES -->
   <div id="rulesCard" class="card hidden">
@@ -558,23 +562,32 @@
     });
   }
 
-  // ปัญหาชั่วคราว (lock ชนกันตอนมีคนเช็คอินพร้อมกันเยอะๆ ในงาน event จริง, เน็ตสะดุด)
-  // ลองเรียกซ้ำเองสั้นๆ ก่อน ไม่ต้องให้ผู้เล่นเจอ error แล้วต้องกดลองเองทุกครั้ง
-  function isTransientApiError(message) {
-    return !!message && /lock|ล็อก|timeout/i.test(message);
+  // ปัญหาชั่วคราวที่ลองใหม่ได้ปลอดภัย: ระบบหลังบ้านคิวเต็ม (busy / error lock ดิบของ Google) ซึ่งเกิดก่อนที่
+  // server จะทำอะไรเลย ส่วนเน็ตสะดุดฝั่งผู้เล่น (script โหลดไม่สำเร็จ) ก็ลองใหม่ แต่ต้องระวังว่า server อาจทำรายการ
+  // ไปแล้วแต่ตอบกลับไม่ถึง — ฝั่งเช็คอินจัดการต่อด้วยการรีเฟรชสถานะเงียบๆ (ดู doManualCheckIn)
+  function isBusyResponse(res) {
+    if (!res || res.success) return false;
+    return res.busy === true || /lock|ล็อก|server busy/i.test(String(res.error || ""));
   }
+  const BUSY_FRIENDLY_MSG = "ระบบกำลังมีผู้ใช้งานหนาแน่น กรุณากดอีกครั้งในอีกสักครู่";
 
   async function callApi(params, attempt = 1) {
-    const MAX_ATTEMPTS = 3;
+    const MAX_BUSY_ATTEMPTS = 2;     // server รอคิวมาแล้วนาน (สูงสุด 20 วิ) ลองอีกแค่ 1 รอบก็พอ
+    const MAX_NETWORK_ATTEMPTS = 3;
     try {
       const res = await callApiOnce(params);
-      if (!res.success && isTransientApiError(res.error) && attempt < MAX_ATTEMPTS) {
-        await new Promise(r => setTimeout(r, attempt * 700));
-        return callApi(params, attempt + 1);
+      if (isBusyResponse(res)) {
+        if (attempt < MAX_BUSY_ATTEMPTS) {
+          await new Promise(r => setTimeout(r, 1200));
+          return callApi(params, attempt + 1);
+        }
+        res.error = BUSY_FRIENDLY_MSG; // แทนข้อความดิบของ Google ที่ผู้เล่นอ่านไม่รู้เรื่อง
+        res.busy = true;
       }
+      res._attempts = attempt;
       return res;
     } catch (e) {
-      if (attempt < MAX_ATTEMPTS) {
+      if (attempt < MAX_NETWORK_ATTEMPTS) {
         await new Promise(r => setTimeout(r, attempt * 700));
         return callApi(params, attempt + 1);
       }
@@ -894,6 +907,7 @@
       updateTimerText(getRemainingMs());
     }
 
+    state.score = status.score;
     document.getElementById("scoreNow").textContent = status.score;
     const offset = DIAL_CIRC * (1 - status.score / TARGET_SCORE);
     document.getElementById("dialProgress").style.strokeDashoffset = offset;
@@ -1032,6 +1046,7 @@
   async function doManualCheckIn(cp, pos, btnEl) {
     if (state.checkingIn || !pos) return;
     state.checkingIn = true;
+    const scoreBeforeClick = state.score;
     btnEl.disabled = true;
     btnEl.textContent = "กำลังเช็คอิน...";
 
@@ -1045,12 +1060,19 @@
         if (res.error === "checkpoint not active for this player") {
           // จุดนี้ถูกสลับไปแล้วจริงๆ (เช่น มีการเช็คอิน/สุ่มใหม่จากแท็บหรือเครื่องอื่นที่ใช้ ID เดียวกัน)
           // ดึงสถานะล่าสุดมา render ใหม่ทันที แทนที่จะปล่อยให้ค้างจุดเดิมที่ใช้ไม่ได้แล้ว
+          // ถ้าคะแนนบน server มากกว่าที่หน้าจอรู้ก่อนกดครั้งนี้ แปลว่าการเช็คอินครั้งก่อน "สำเร็จไปแล้ว"
+          // (เช่น คำตอบหายระหว่างทางตอนเน็ตสะดุดแล้วระบบลองส่งซ้ำ) ให้อัปเดตจุดใหม่เงียบๆ ไม่ต้องขึ้น popup
+          // ถ้าคะแนนไม่เพิ่ม แปลว่าจุดถูกเปลี่ยนจากที่อื่นจริง (เช่นเปิดหลายเครื่อง) ค่อยแจ้งเตือน
+          let advanced = false;
           try {
             const fresh = await callApi({ action: "getStatus", id: state.id });
-            if (fresh.success) renderStatus(fresh);
+            if (fresh.success) {
+              advanced = Number(fresh.score) > Number(scoreBeforeClick);
+              renderStatus(fresh);
+            }
           } catch (e2) { /* เน็ตหลุด ปล่อยผ่าน รอบถัดไปค่อย sync */ }
 
-          alert("อัพเดทจุดเช็คอิน");
+          if (!advanced) alert("อัพเดทจุดเช็คอิน");
         } else {
           alert(res.error === "too far from checkpoint"
             ? "ระยะห่างเกินรัศมีแล้ว กรุณาเดินเข้าใกล้จุดอีกครั้ง"
