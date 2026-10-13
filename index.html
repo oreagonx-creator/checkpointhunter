@@ -382,7 +382,7 @@
   </div>
 
   <div class="brand-footer">Checkpoint Hunter System &middot; Checkpoint Mission</div>
-  <div class="brand-version">Ver.1.1</div>
+  <div class="brand-version">Ver.1.2</div>
 
   <!-- RULES -->
   <div id="rulesCard" class="card hidden">
@@ -603,7 +603,7 @@
   // opts.retryNetwork = false : ไม่ลองซ้ำเมื่อ "เน็ตสะดุด" (ใช้กับ action ที่ server อาจทำไปแล้วแต่ตอบกลับไม่ถึง
   //                             แล้วลองซ้ำจะเสียหาย เช่น สุ่มใหม่ที่หักเวลา 10 นาที)
   // opts.onBusyRetry(n, max)  : แจ้งหน้าจอว่ากำลังรอคิวลองใหม่ (ไว้เปลี่ยนข้อความบนปุ่ม)
-  const MAX_BUSY_ATTEMPTS = 5;
+  const MAX_BUSY_ATTEMPTS = 3; // ลองทั้งหมด 3 รอบ (= retry 2 ครั้ง) กันคำขอซ้ำทำให้คิวแน่นขึ้น
   const MAX_NETWORK_ATTEMPTS = 3;
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   function busyBackoffMs(tries) {
@@ -910,11 +910,19 @@
     startStatusPolling();
   }
 
-  // ---------- poll getStatus ทุก 30 วิ เพื่อเช็คว่าจุด active ถูกสลับจากที่อื่นหรือยัง
+  // ---------- poll getStatus ทุก 60 วิ (หยุดตอนปิดจอ/สลับแท็บ แล้ว sync ทันทีตอนกลับมา) เพื่อเช็คว่าจุด active ถูกสลับจากที่อื่นหรือยัง
   //            (เช่น เปิดหลายแท็บ/หลายเครื่องด้วย ID เดียวกัน) — ไม่เกี่ยวกับความแม่นยำของเวลาแล้ว
   //            เพราะตัวจับเวลาคำนวณจาก endTime ตรงๆ ไม่มีทางเพี้ยนสะสมอยู่แล้ว ----------
+  const STATUS_POLL_MS = 60000;
+
   function startStatusPolling() {
-    state.statusPollInterval = setInterval(async () => {
+    stopStatusPolling();
+    state.statusPollInterval = setInterval(() => {
+      if (!document.hidden) pollStatusOnce();
+    }, STATUS_POLL_MS);
+  }
+
+  async function pollStatusOnce() {
       try {
         const res = await callApi({ action: "getStatus", id: state.id });
         if (!res.success) return;
@@ -941,12 +949,17 @@
       } catch (e) {
         // เน็ตหลุดชั่วคราว ไม่ต้องแจ้งเตือน รอ poll รอบถัดไป
       }
-    }, 30000);
   }
 
   function stopStatusPolling() {
     if (state.statusPollInterval) clearInterval(state.statusPollInterval);
+    state.statusPollInterval = null;
   }
+
+  // กลับมาเปิดจอ/แท็บอีกครั้งระหว่างเล่น -> sync สถานะทันที (ไม่ต้องรอรอบ 60 วิ)
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && state.statusPollInterval) pollStatusOnce();
+  });
 
   function renderStatus(status) {
     if (status.remainingMs !== undefined) {
