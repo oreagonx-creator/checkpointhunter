@@ -368,10 +368,10 @@
       </div>
     </div>
 
-    <label for="pName">ชื่อผู้เล่น</label>
+    <label for="pName">ชื่อ - สกุล</label>
     <input id="pName" type="text" placeholder="เช่น สมชาย ใจดี" autocomplete="off">
     <label for="pId">SAP ID</label>
-    <input id="pId" type="text" placeholder="เช่น 001" autocomplete="off" inputmode="numeric">
+    <input id="pId" type="text" placeholder="เฉพาะตัวเลข เช่น 10001234" autocomplete="off" inputmode="numeric" pattern="[0-9]*" maxlength="20">
     <div class="sap-warning">กรุณาตรวจสอบเลข SAP ID ก่อนเริ่ม หากผิดไม่สามารถแก้ไขได้</div>
     <div id="loginError" class="error-msg"></div>
     <button id="startBtn" class="btn-primary">เข้าสู่ภารกิจ &rarr;</button>
@@ -382,7 +382,7 @@
   </div>
 
   <div class="brand-footer">Checkpoint Hunter System &middot; Checkpoint Mission</div>
-  <div class="brand-version">Ver.1.2</div>
+  <div class="brand-version">Ver.1.3</div>
 
   <!-- RULES -->
   <div id="rulesCard" class="card hidden">
@@ -500,7 +500,7 @@
     <div class="modal-msg">เครดิตสัปดาห์นี้ของฉัน</div>
 
     <div id="creditCheckInputWrap" class="credit-check-box">
-      <input id="creditCheckId" type="text" placeholder="กรอก SAP ID" inputmode="numeric">
+      <input id="creditCheckId" type="text" placeholder="กรอก SAP ID (ตัวเลขเท่านั้น)" inputmode="numeric" pattern="[0-9]*" maxlength="20">
       <button id="creditCheckBtn" class="btn-secondary" type="button">ตรวจสอบ</button>
     </div>
 
@@ -1417,6 +1417,15 @@
   }
   document.getElementById("endActivityBtn").addEventListener("click", endActivity);
   document.getElementById("modalEndActivityBtn").addEventListener("click", endActivity);
+
+  // SAP ID รับเฉพาะตัวเลข (ตัดตัวอักษร/ช่องว่างที่พิมพ์หรือวางเข้ามาทิ้งทันที)
+  ["pId","creditCheckId"].forEach(function(elId){
+    var el=document.getElementById(elId);
+    if(el) el.addEventListener("input",function(){
+      var clean=el.value.replace(/\D/g,"");
+      if(el.value!==clean) el.value=clean;
+    });
+  });
 </script>
 </body>
 </html>
