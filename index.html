@@ -323,6 +323,11 @@
   .mode-note{
     font-size:11.5px; color:var(--ink-dim); text-align:center; margin-top:14px; line-height:1.5;
   }
+  .screenshot-note{ color:#D64545; font-size:12px; font-weight:600; line-height:1.4; margin:2px 2px 10px; }
+  .queue-msg{
+    margin-top:12px; padding:12px 14px; border-radius:12px; background:var(--amber-dim);
+    color:var(--ink); font-size:13.5px; font-weight:600; line-height:1.6; text-align:center;
+  }
   .brand-footer{
     text-align:center; font-size:10px; color:var(--ink-dim); margin-top:6px; letter-spacing:.02em;
   }
@@ -371,7 +376,7 @@
     <label for="pName">ชื่อ - สกุล</label>
     <input id="pName" type="text" placeholder="เช่น สมชาย ใจดี" autocomplete="off">
     <label for="pId">SAP ID</label>
-    <input id="pId" type="text" placeholder="เฉพาะตัวเลข เช่น 10001234" autocomplete="off" inputmode="numeric" pattern="[0-9]*" maxlength="20">
+    <input id="pId" type="text" placeholder="ตัวเลข 8 หลัก ขึ้นต้นด้วย 100" autocomplete="off" inputmode="numeric" pattern="100[0-9]{5}" maxlength="8">
     <div class="sap-warning">กรุณาตรวจสอบเลข SAP ID ก่อนเริ่ม หากผิดไม่สามารถแก้ไขได้</div>
     <div id="loginError" class="error-msg"></div>
     <button id="startBtn" class="btn-primary">เข้าสู่ภารกิจ &rarr;</button>
@@ -382,7 +387,7 @@
   </div>
 
   <div class="brand-footer">Checkpoint Hunter System &middot; Checkpoint Mission</div>
-  <div class="brand-version">Ver.1.3</div>
+  <div class="brand-version">Ver.1.5</div>
 
   <!-- RULES -->
   <div id="rulesCard" class="card hidden">
@@ -402,6 +407,7 @@
     <button id="rulesGpsRetryBtn" class="btn-ghost hidden" type="button">🔄 ลองเช็ค GPS อีกครั้ง</button>
 
     <button id="rulesStartBtn" class="btn-primary btn-start-timer" disabled><span class="start-timer-icon">⏱️</span> เริ่มจับเวลา</button>
+    <div id="rulesQueueMsg" class="queue-msg hidden"></div>
   </div>
 
   <!-- GAME -->
@@ -461,6 +467,7 @@
     <div id="captionBox" class="caption-box hidden">
       <label for="captionInput">จบภารกิจแล้ว... อยากบอกว่า</label>
       <input id="captionInput" type="text" maxlength="200" placeholder="พิมพ์ข้อความสั้นๆ ของคุณ">
+      <div class="screenshot-note">กรุณาแคปหน้าจอไว้ เพื่อใช้เป็นหลักฐานในการตรวจสอบ</div>
       <button id="captionSubmitBtn" class="btn-primary" type="button">ส่งข้อความ</button>
     </div>
 
@@ -568,22 +575,32 @@
   }
 
   // ---------- JSONP helper (กัน CORS ปัญหาจาก Apps Script) ----------
-  function callApiOnce(params) {
+  function callApiOnce(params, timeoutMs) {
     return new Promise((resolve, reject) => {
+      let timer = null;
       const cbName = "jsonp_cb_" + Math.random().toString(36).slice(2);
       const script = document.createElement("script");
       const qs = new URLSearchParams({ ...params, callback: cbName }).toString();
 
       window[cbName] = (data) => {
+        if (timer) clearTimeout(timer);
         resolve(data);
         delete window[cbName];
         script.remove();
       };
       script.onerror = () => {
+        if (timer) clearTimeout(timer);
         reject(new Error("เรียก API ไม่สำเร็จ ตรวจสอบการเชื่อมต่อ"));
         delete window[cbName];
         script.remove();
       };
+      if (timeoutMs) {
+        timer = setTimeout(() => {
+          window[cbName] = () => { delete window[cbName]; }; // ถ้าคำตอบมาช้าหลังตัดไปแล้ว ให้ทิ้งเงียบๆ
+          script.remove();
+          reject(new Error("ระบบตอบกลับช้าเกินไป กรุณาลองใหม่อีกครั้ง"));
+        }, timeoutMs);
+      }
       script.src = `${API_URL}?${qs}`;
       document.body.appendChild(script);
     });
@@ -596,6 +613,7 @@
     if (!res || res.success) return false;
     return res.busy === true || /lock|ล็อก|server busy/i.test(String(res.error || ""));
   }
+  const START_BUSY_MSG = "ระบบยังหนาแน่นอยู่ ยังไม่ได้เริ่มภารกิจและไม่ถูกนับเป็นรอบเล่น\nกรุณารอสัก 30 วินาที แล้วกด \"เข้าสู่ภารกิจ\" ด้วยชื่อและ SAP ID เดิมอีกครั้ง";
   const BUSY_FRIENDLY_MSG = "ระบบกำลังมีผู้ใช้งานหนาแน่น กรุณากดอีกครั้งในอีกสักครู่";
 
   // ลองใหม่เมื่อระบบหลังบ้านคิวเต็ม (busy) แบบหน่วงเวลาเพิ่มขึ้นเรื่อยๆ + สุ่มเพิ่มเล็กน้อย (jitter)
@@ -616,7 +634,7 @@
     let netTries = 0;
     while (true) {
       try {
-        const res = await callApiOnce(params);
+        const res = await callApiOnce(params, opts.timeoutMs);
         if (isBusyResponse(res)) {
           busyTries++;
           if (busyTries < MAX_BUSY_ATTEMPTS) {
@@ -719,6 +737,7 @@
 
   function showError(msg) {
     loginError.textContent = msg;
+    loginError.style.whiteSpace = "pre-line";
     loginError.style.display = "block";
   }
   function clearError() {
@@ -737,6 +756,10 @@
 
     if (!name || !id) {
       showError("กรอกชื่อและ SAP ID ให้ครบก่อนครับ");
+      return;
+    }
+    if (!/^100\d{5}$/.test(id)) {
+      showError("SAP ID ต้องเป็นตัวเลข 8 หลัก ขึ้นต้นด้วย 100 เท่านั้น");
       return;
     }
 
@@ -832,15 +855,27 @@
     rulesStartBtn.disabled = true;
     rulesStartBtn.innerHTML = '<span class="start-timer-icon">⏱️</span> เริ่มจับเวลา';
 
+    const queueMsg = document.getElementById("rulesQueueMsg");
+    const showQueue = () => {
+      queueMsg.innerHTML = "ขณะนี้มีผู้เล่นจำนวนมาก ระบบกำลังจัดคิวให้คุณ (รอประมาณ 40 วินาที)<br>กรุณาอย่าปิด รีเฟรชหน้านี้ หรือกดซ้ำ";
+      queueMsg.classList.remove("hidden");
+      rulesStartBtn.innerHTML = '<span class="start-timer-icon">⏳</span> กำลังรอคิว...';
+    };
+    const slowTimer = setTimeout(showQueue, 4000); // ถ้าตอบช้ากว่า 4 วิ ให้บอกผู้เล่นว่ากำลังรอคิว
+
     // เรียก API กับนับถอยหลังพร้อมกัน (ข้อมูลจะพร้อมพอดีตอนนับจบ ไม่เสียเวลารอซ้ำ)
     const apiPromise = callApi({ action: "startGame", id, name }, {
-      onBusyRetry: () => { rulesStartBtn.innerHTML = '<span class="start-timer-icon">⏳</span> ระบบหนาแน่น กำลังลองใหม่...'; }
+      timeoutMs: 25000,
+      onBusyRetry: showQueue
     }).catch(err => ({ success: false, error: err.message }));
     await runCountdown();
     const res = await apiPromise;
+    clearTimeout(slowTimer);
+    queueMsg.classList.add("hidden");
 
     try {
       if (!res.success) {
+        if (res.busy) res.error = START_BUSY_MSG;
         rulesCard.classList.add("hidden");
         loginCard.classList.remove("hidden");
         showError(res.error === "daily attempt limit reached" ? dailyLimitMessage(res) : (res.error || "เริ่มเกมไม่สำเร็จ"));
@@ -1423,6 +1458,10 @@
     var el=document.getElementById(elId);
     if(el) el.addEventListener("input",function(){
       var clean=el.value.replace(/\D/g,"");
+      if(elId==="pId"){
+        clean=clean.slice(0,8);
+        if(clean && "100".indexOf(clean.slice(0,3))!==0) clean=""; // ต้องขึ้นต้นด้วย 100 เท่านั้น
+      }
       if(el.value!==clean) el.value=clean;
     });
   });
