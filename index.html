@@ -387,7 +387,7 @@
   </div>
 
   <div class="brand-footer">Checkpoint Hunter System &middot; Checkpoint Mission</div>
-  <div class="brand-version">Ver.1.5</div>
+  <div class="brand-version">Ver.1.6</div>
 
   <!-- RULES -->
   <div id="rulesCard" class="card hidden">
@@ -625,7 +625,7 @@
   const MAX_NETWORK_ATTEMPTS = 3;
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   function busyBackoffMs(tries) {
-    return Math.min(1500 * 2 ** (tries - 1), 8000) + Math.random() * 1500;
+    return Math.min(4000 * 2 ** (tries - 1), 12000) + Math.random() * 4000; // เว้นห่างขึ้น (4-8 วิ, 8-12 วิ) ลดคำขอซ้ำที่ทำให้ระบบแน่นขึ้น
   }
 
   async function callApi(params, opts = {}) {
